@@ -1,4 +1,4 @@
-import { useTreasuryBreakdown } from '../../hooks/useTreasuryBreakdown'
+import { useTreasuryBreakdown, TreasuryBreakdown } from '../../hooks/useTreasuryBreakdown'
 import { Flex, Box, Text } from 'rebass'
 import { CurrencyLogo } from '../../components/currency-logo'
 import { Header } from '../../components/header'
@@ -7,34 +7,24 @@ import styled from 'styled-components'
 import { Footer } from '../../components/footer'
 import { Card } from '../../components/card'
 import { TabBar } from '../../components/tab-bar'
+import { ProgressBar } from '../../components/progress-bar'
 import { useEffect, useState } from 'react'
 import { CHAIN_ID } from '../../constants'
 import Decimal from 'decimal.js-light'
 
-const Table = styled.table`
-  width: 100%;
+const PercentageChange24HText = styled(Text)<{ positive: boolean }>`
+  color: ${(props) => (props.positive ? '#00b300' : '#e60000')};
+  font-weight: 600;
 `
 
-const TableRow = styled.tr`
-  width: 100%;
-  height: 40px;
+const TableHeaderBox = styled(Box)`
+  font-weight: 700;
 `
 
-const TableData = styled.td`
-  padding-right: 40px;
-  white-space: nowrap;
-`
-
-const RelativeContainer = styled.div`
-  position: relative;
+const TableHeaderDivider = styled(Box)`
+  height: 1px;
   width: 100%;
-  height: 100%;
-`
-
-const AbsolutePieContainer = styled.div`
-  position: absolute;
-  width: 100%;
-  height: 100%;
+  background-color: #ccc;
 `
 
 export const App = () => {
@@ -42,19 +32,24 @@ export const App = () => {
 
   const [tabIndex, setTabIndex] = useState(0)
   const [totalUsdValue, setTotalUsdValue] = useState(new Decimal(0))
-  const [networkBreakdownData, setNetworkBreakdownData] = useState<{ id: string; value: number }[]>([])
+  const [sortedTreasuryBreakdown, setSortedTreasuryBreakdown] = useState<TreasuryBreakdown[]>([])
 
   useEffect(() => {
-    setNetworkBreakdownData(
-      treasuryBreakdown.map((breakdown) => ({
-        id: breakdown.chainId.toString(),
-        value: breakdown.totalUsdValue.toNumber(),
-      }))
-    )
     setTotalUsdValue(
       treasuryBreakdown.reduce((totalValue, breakdown) => {
-        return totalValue.plus(breakdown.totalUsdValue)
+        return totalValue.plus(breakdown.totalUsdValue.toFixed(6))
       }, new Decimal(0))
+    )
+  }, [treasuryBreakdown])
+
+  useEffect(() => {
+    setSortedTreasuryBreakdown(
+      treasuryBreakdown.map((breakdown) => ({
+        ...breakdown,
+        holdings: breakdown.holdings.sort((a, b) => {
+          return b.usdValue.minus(a.usdValue).toNumber()
+        }),
+      }))
     )
   }, [treasuryBreakdown])
 
@@ -65,47 +60,87 @@ export const App = () => {
           <Header />
           <Card>
             <Flex flexDirection="column" width="100%">
-              <Flex justifyContent="space-between" mb="16px">
-                <Box>
-                  <TableRow>
-                    <th>Treasury breakdown</th>
-                  </TableRow>
-                </Box>
-                <Text fontSize="32px" fontWeight="700">
-                  ${commify(totalUsdValue.toFixed(2))}
-                </Text>
-              </Flex>
+              <Text fontSize="32px" fontWeight="700" mb="16px">
+                Total: ${commify(totalUsdValue.toFixed(2))}
+              </Text>
               <Box>
                 <TabBar titles={Object.keys(CHAIN_ID)} active={tabIndex} onChange={setTabIndex} />
               </Box>
-              <Box width="100%" overflowX="auto">
-                <Table style={{ width: '100%' }}>
-                  {treasuryBreakdown.length > 1 &&
-                    treasuryBreakdown[tabIndex].holdings.map((holding) => {
-                      return (
-                        <TableRow key={holding.address}>
-                          <TableData>
-                            <Flex alignItems="center">
-                              <Box mr="8px">
-                                <CurrencyLogo
-                                  size="24px"
-                                  address={holding.ethereumMainnetAddress}
-                                  symbol={holding.symbol}
-                                />
-                              </Box>
-                              <Text>{holding.name}</Text>
-                            </Flex>
-                          </TableData>
-                          <TableData>
-                            {commify(holding.balance.toFixed(4))} {holding.symbol}
-                          </TableData>
-                          <TableData>${commify(holding.balance.times(holding.usdPrice).toFixed(2))}</TableData>
-                          <TableData>${commify(holding.usdPrice.toFixed(2))}</TableData>
-                        </TableRow>
-                      )
-                    })}
-                </Table>
-              </Box>
+              <Flex flexDirection="column" width="100%" minHeight="600px" overflowX="auto">
+                <Flex alignItems="center" mb="20px">
+                  <TableHeaderBox width="100%" minWidth="160px">
+                    Currency
+                  </TableHeaderBox>
+                  <TableHeaderBox width="100%" minWidth="160px" display="flex" alignItems="flex-end">
+                    Balance
+                  </TableHeaderBox>
+                  <TableHeaderBox width="100%" minWidth="160px">
+                    USD value
+                  </TableHeaderBox>
+                  <TableHeaderBox width="100%" minWidth="160px">
+                    USD price
+                  </TableHeaderBox>
+                  <TableHeaderBox width="100%" minWidth="160px">
+                    24h %age change
+                  </TableHeaderBox>
+                </Flex>
+                <TableHeaderDivider mb="20px" />
+                {sortedTreasuryBreakdown.length > 1 &&
+                  sortedTreasuryBreakdown[tabIndex].holdings.map((holding) => {
+                    return (
+                      <Flex key={holding.address} flexDirection="column" height="60px" width="100%" mb="8px">
+                        <Flex alignItems="center" mb="8px">
+                          <Flex alignItems="center" width="100%" minWidth="160px">
+                            <Box mr="8px">
+                              <CurrencyLogo
+                                size="24px"
+                                address={holding.ethereumMainnetAddress}
+                                symbol={holding.symbol}
+                              />
+                            </Box>
+                            <Text fontWeight="600">{holding.name}</Text>
+                          </Flex>
+                          <Box width="100%" minWidth="160px" display="flex" alignItems="flex-end">
+                            {commify(holding.balance.toFixed(4))}{' '}
+                            <Text ml="4px" fontWeight="400" fontSize="12px" color="#999">
+                              {holding.symbol}
+                            </Text>
+                          </Box>
+                          <Box width="100%" minWidth="160px">
+                            ${commify(holding.balance.times(holding.usdPrice).toFixed(2))}
+                          </Box>
+                          <Box width="100%" minWidth="160px">
+                            ${commify(holding.usdPrice.toFixed(2))}
+                          </Box>
+                          <Box width="100%" minWidth="160px">
+                            <PercentageChange24HText positive={holding.priceChange24h.isPositive()}>
+                              {commify(holding.priceChange24h.toFixed(2))}%
+                            </PercentageChange24HText>
+                          </Box>
+                        </Flex>
+                        <Flex alignItems="center">
+                          <Box width="60px">
+                            <Text fontSize="12px">
+                              {holding.usdValue
+                                .dividedBy(sortedTreasuryBreakdown[tabIndex].totalUsdValue)
+                                .times(100)
+                                .toFixed(2)}
+                              %
+                            </Text>
+                          </Box>
+                          <Box width="100%">
+                            <ProgressBar
+                              progress={holding.usdValue
+                                .dividedBy(sortedTreasuryBreakdown[tabIndex].totalUsdValue)
+                                .times(100)
+                                .toNumber()}
+                            />
+                          </Box>
+                        </Flex>
+                      </Flex>
+                    )
+                  })}
+              </Flex>
             </Flex>
           </Card>
           <Footer />

@@ -37,6 +37,8 @@ export const useListWithPerChainTokenAddresses = (tokenList?: TokenList) => {
           })
         )
         setTokenWithPerChainAddresses(tokenWithPerChainAddresses)
+      } catch (error) {
+        console.error('error getting token addresses in other chains')
       } finally {
         setLoading(false)
       }

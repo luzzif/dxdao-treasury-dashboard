@@ -9,7 +9,7 @@ const Logo = styled.img`
 
 export const Footer = () => {
   return (
-    <Flex width="100%" px="20px" height="80px" justifyContent="space-between" alignItems="center">
+    <Flex width="100%" height="80px" justifyContent="space-between" alignItems="center">
       <Box>
         <Logo src={logo} alt="logo" />
       </Box>

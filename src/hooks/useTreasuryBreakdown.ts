@@ -23,9 +23,11 @@ export interface Holding {
   balance: Decimal
   decimals: number
   usdPrice: Decimal
+  priceChange24h: Decimal
+  usdValue: Decimal
 }
 
-interface TreasuryBreakdown {
+export interface TreasuryBreakdown {
   chainId: number
   holdings: Holding[]
   totalUsdValue: Decimal
@@ -48,28 +50,35 @@ export const useTreasuryBreakdown = () => {
         const nativeCurrencyPricesResponse = await fetch(
           `https://api.coingecko.com/api/v3/simple/price?ids=${Object.values(NATIVE_CURRENCY_SPEC)
             .map((nativeCurrencySpec) => nativeCurrencySpec.coingeckoId)
-            .join(',')}&vs_currencies=usd`
+            .join(',')}&vs_currencies=usd&include_24hr_change=true`
         )
         if (!nativeCurrencyPricesResponse.ok) {
           console.error('error fetching native currency prices')
           return
         }
-        const nativeCurrencyPrices = (await nativeCurrencyPricesResponse.json()) as { [id: string]: { usd: string } }
+        const nativeCurrencyPrices = (await nativeCurrencyPricesResponse.json()) as {
+          [id: string]: { usd: number; usd_24h_change: number }
+        }
         const holdingsPerChain = await Promise.all(
           Object.values(CHAIN_ID).map(async (chainId) => {
             const daoAvatarAddress = DAO_AVATAR_ADDRESS[chainId]
             const provider = new JsonRpcProvider(RPC_URL[chainId])
-            const nonZeroBalances = []
+            const nonZeroBalances: Holding[] = []
             const nativeCurrencyBalance = await provider.getBalance(daoAvatarAddress)
             if (!nativeCurrencyBalance.isZero()) {
               const nativeCurrency = NATIVE_CURRENCY_SPEC[chainId]
+              const balance = new Decimal(formatUnits(nativeCurrencyBalance, nativeCurrency.decimals))
+              const usdPrice = new Decimal(nativeCurrencyPrices[nativeCurrency.coingeckoId].usd)
+              console.log(nativeCurrencyPrices[nativeCurrency.coingeckoId])
               nonZeroBalances.push({
                 address: ethers.constants.AddressZero,
                 name: nativeCurrency.name,
                 symbol: nativeCurrency.symbol,
                 decimals: nativeCurrency.decimals,
-                balance: new Decimal(formatUnits(nativeCurrencyBalance, nativeCurrency.decimals)),
-                usdPrice: new Decimal(nativeCurrencyPrices[nativeCurrency.coingeckoId].usd),
+                balance,
+                usdPrice,
+                priceChange24h: new Decimal(nativeCurrencyPrices[nativeCurrency.coingeckoId].usd_24h_change),
+                usdValue: balance.times(new Decimal(nativeCurrencyPrices[nativeCurrency.coingeckoId].usd)),
                 ethereumMainnetAddress: ethers.constants.AddressZero,
               })
             }
@@ -102,6 +111,8 @@ export const useTreasuryBreakdown = () => {
                   decimals: relatedToken.decimals,
                   balance: new Decimal(formatUnits(balance, relatedToken.decimals)),
                   usdPrice: new Decimal(0),
+                  usdValue: new Decimal(0),
+                  priceChange24h: new Decimal(0),
                   ethereumMainnetAddress: relatedToken.addresses[CHAIN_ID.Mainnet],
                 })
                 return accumulator
@@ -110,25 +121,32 @@ export const useTreasuryBreakdown = () => {
             const tokenPricesResponse = await fetch(
               `https://api.coingecko.com/api/v3/simple/token_price/ethereum?vs_currencies=usd&contract_addresses=${nonZeroBalances
                 .map((balance) => balance.ethereumMainnetAddress)
-                .join(',')}`
+                .join(',')}&include_24hr_change=true`
             )
             let totalUsdValue = new Decimal(0)
             if (!tokenPricesResponse.ok) {
               console.error('error fetching token prices')
               return { chainId, holdings: [], totalUsdValue }
             }
-            const tokenPrices = (await tokenPricesResponse.json()) as { [address: string]: { usd: string } }
+            const tokenPrices = (await tokenPricesResponse.json()) as {
+              [address: string]: { usd: number; usd_24h_change: number }
+            }
+            console.log(tokenPrices)
             const holdings = nonZeroBalances.map((nonZeroBalance) => {
               if (nonZeroBalance.usdPrice.gt(0)) {
                 totalUsdValue = totalUsdValue.plus(nonZeroBalance.balance.times(nonZeroBalance.usdPrice))
                 return nonZeroBalance
               }
               const lowercaseAddress = nonZeroBalance.ethereumMainnetAddress.toLowerCase()
-              const usdPrice = new Decimal(tokenPrices[lowercaseAddress] ? tokenPrices[lowercaseAddress].usd : 0)
+              const usdPrice = new Decimal(tokenPrices[lowercaseAddress]?.usd ? tokenPrices[lowercaseAddress].usd : 0)
               totalUsdValue = totalUsdValue.plus(nonZeroBalance.balance.times(usdPrice))
               return {
                 ...nonZeroBalance,
                 usdPrice,
+                priceChange24h: new Decimal(
+                  tokenPrices[lowercaseAddress]?.usd_24h_change ? tokenPrices[lowercaseAddress].usd_24h_change : 0
+                ),
+                usdValue: nonZeroBalance.balance.times(usdPrice),
               }
             })
             return {
@@ -139,6 +157,8 @@ export const useTreasuryBreakdown = () => {
           })
         )
         setTreasuryBreakdown(holdingsPerChain)
+      } catch (error) {
+        console.error('error getting treasury breakdown', error)
       } finally {
         setLoading(false)
       }

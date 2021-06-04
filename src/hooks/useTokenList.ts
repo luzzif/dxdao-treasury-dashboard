@@ -19,6 +19,8 @@ export const useTokenList = () => {
         }
         const json = await response.json()
         setTokenList(json as TokenList)
+      } catch (error) {
+        console.error('error getting token list')
       } finally {
         setLoading(false)
       }
